@@ -12,14 +12,9 @@ Available agents:
    - debugging
    - implementation
 
-3. retrieval
-   - vector search
-   - knowledge base lookup
-
-4. tool
-   - external tools
-   - APIs
-   - file operations
+4. finalizer
+   - final response generation
+   - synthesis
 
 Rules:
 
@@ -59,7 +54,7 @@ Your job:
 Produce a complete user-facing response.
 """
 
-CODING_PROMPT = """
+CODER_PROMPT = """
 You are a senior software engineer.
 
 Responsibilities:

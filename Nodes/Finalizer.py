@@ -14,7 +14,7 @@ def get_completed_tasks(tasks):
 
 async def finalizer_node(state: AgentState):
 
-    finalizer_llm = state.llm_gateway(ModelRole.FINALIZER)
+    finalizer_llm = state["llm_gateway"].get_model(ModelRole.FINALIZER)
 
     completed_tasks = get_completed_tasks(
         state["tasks"]

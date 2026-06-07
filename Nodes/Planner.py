@@ -12,8 +12,6 @@ class PlannedTask(BaseModel):
     assigned_agent: Literal[
         "research",
         "coding",
-        "retrieval",
-        "tool"
     ]
 
 
@@ -23,34 +21,29 @@ class PlannerOutput(BaseModel):
 
 
 async def planner(state: AgentState):
-     
-     planner_llm = state.llm_gateway(ModelRole.PLANNER)
-     
-     planner = planner_llm.with_structured_output(PlannerOutput)
+    planner_llm = state["llm_gateway"].get_model(ModelRole.PLANNER)
 
-     plan = await planner.ainvoke(
-         [
-             SystemMessage(
-                 content=PLANNER_PROMPT
-             ),
-             HumanMessage(
-                 content=state["user_query"]
-             )
-         ]
-     )
+    planner = planner_llm.with_structured_output(PlannerOutput)
 
-     tasks = [
-         {
-             "id": task.id,
-             "description": task.description,
-             "status": "pending",
-             "assigned_agent": task.assigned_agent,
-             "result": None
-         }
-         for task in plan.tasks
-     ]
+    plan = await planner.ainvoke(
+        [
+            SystemMessage(content=PLANNER_PROMPT),
+            HumanMessage(content=state["user_query"]),
+        ]
+    )
 
-     return {
-            "tasks": tasks,
-            "iteration_count": 0,
-     }
+    tasks = [
+        {
+            "id": task.id,
+            "description": task.description,
+            "status": "pending",
+            "assigned_agent": task.assigned_agent,
+            "result": None,
+        }
+        for task in plan.tasks
+    ]
+
+    return {
+        "tasks": tasks,
+        "iteration_count": 0,
+    }

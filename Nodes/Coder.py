@@ -5,6 +5,7 @@ from Gateway.llm_gateway import LLMGateway
 from .supervisor_node import AgentState
 from langchain_core.messages import SystemMessage,HumanMessage
 
+
 class CodingResult(BaseModel):
     summary: str
     code: str
@@ -13,18 +14,18 @@ class CodingResult(BaseModel):
 
 def get_current_task(state):
 
-    task_id = state["tasks"]
+    task_id = state["current_task"]
 
     for task in state["tasks"]:
         if task["id"] == task_id:
             return task
-    return ValueError(
+    raise ValueError(
         f"Task with id {task_id} not found in state."
     )
 
 async def coder(state: AgentState):
 
-    coder_llm = state.llm_gateway(ModelRole.CODING)
+    coder_llm = state["llm_gateway"].get_model(ModelRole.CODING)
 
     task = get_current_task(state)
 

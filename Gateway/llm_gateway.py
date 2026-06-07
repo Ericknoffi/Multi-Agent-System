@@ -21,6 +21,7 @@ class LLMGateway:
             timeout=config.timeout,
             max_retries=config.max_retries,
             api_key=self.api_key,
+            fallback_model=config.fallback_model
         )
         
         if config.tool_group:

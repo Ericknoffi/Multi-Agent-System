@@ -13,7 +13,7 @@ class ResearchResult(BaseModel):
 
 def get_current_task(state):
 
-    task_id = state["tasks"]
+    task_id = state["current_task"]
 
     for task in state["tasks"]:
         if task["id"] == task_id:
@@ -25,7 +25,7 @@ def get_current_task(state):
 
 async def researcher(state: AgentState):
 
-    researcher_llm = state.llm_gateway(ModelRole.RESEARCHER)
+    researcher_llm = state["llm_gateway"].get_model(ModelRole.RESEARCHER)
     
     task = get_current_task(state)
 

@@ -1,6 +1,5 @@
-from typing import TypedDict, List, Literal
-from langchain_core.messages import BaseMessage
-
+from typing import Annotated, TypedDict, List, Literal, Any
+from langchain_core.messages import BaseMessage, add_message
 
 class Task(TypedDict):
     id: str
@@ -11,8 +10,9 @@ class Task(TypedDict):
 
 
 class AgentState(TypedDict):
-    messages: List[BaseMessage]
+    messages: Annotated[List[BaseMessage], add_message]
     user_query: str
+    llm_gateway: Any
     tasks: List[Task]
     current_task: str | None
     next_agent: str | None

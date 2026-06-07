@@ -1,10 +1,17 @@
 from langgraph.graph import StateGraph, START, END
+from dotenv import load_dotenv
+import os
+import sys
 from Nodes.Coder import coder
 from Nodes.Planner import planner
 from Nodes.Researcher import researcher
 from Nodes.Finalizer import finalizer_node
+from Gateway.llm_gateway import LLMGateway
 from Nodes.supervisor_node import AgentState, supervisor_node, supervisor_router
 import registry
+
+
+load_dotenv()
 
 
 graph = StateGraph(AgentState)
@@ -35,7 +42,30 @@ async def main():
     # Initialize MCP tools before constructing/using models
     await registry.initialize_tools()
     app = graph.compile()
-    print("Graph compiled, tools initialized. Ready to run the app.")
+
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
+
+    user_query = " ".join(sys.argv[1:]).strip() or "Create a simple task plan"
+
+    llm_gateway = LLMGateway(api_key=api_key)
+
+    initial_state: AgentState = {
+        "messages": [],
+        "user_query": user_query,
+        "llm_gateway": llm_gateway,
+        "tasks": [],
+        "current_task": None,
+        "next_agent": None,
+        "final_response": None,
+        "iteration_count": 0,
+        "errors": [],
+        "planner_reasoning": None,
+    }
+
+    result = await app.ainvoke(initial_state)
+    print(result)
 
 
 if __name__ == "__main__":
