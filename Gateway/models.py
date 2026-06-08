@@ -21,35 +21,35 @@ class ModelConfig:
 
 MODEL_REGISTRY: dict[ModelRole, ModelConfig] = {
     ModelRole.PLANNER: ModelConfig(
-        model="gpt-4o", 
+        model="openai/gpt-oss-120b:free", 
         temperature=0.0,
-        fallback_model="gpt-4o-2024-08-06"
+        fallback_model="nvidia/nemotron-3-ultra-550b-a55b:free"
         ),
     ModelRole.SUPERVISOR: ModelConfig(
-        model="gpt-4o", 
+        model="openai/gpt-oss-120b:free", 
         temperature=0.0,
-        fallback_model="gpt-4o-2024-08-06"
+        fallback_model="nvidia/nemotron-3-ultra-550b-a55b:free"
         ),
     ModelRole.RESEARCHER: ModelConfig(
-        model="gpt-4o",
+        model="nvidia/nemotron-3-ultra-550b-a55b:free",
         temperature=0.0,
-        fallback_model="gpt-4o-2024-08-06",
+        fallback_model="moonshotai/kimi-k2.6:free",
         tool_group="research"
         ),
     ModelRole.RETRIEVER: ModelConfig(
-        model="gpt-4o", 
+        model="openai/gpt-oss-20b:free", 
         temperature=0.0,
-        fallback_model="gpt-4o-2024-08-06",
+        fallback_model="nvidia/nemotron-nano-9b-v2:free",
         ),
     ModelRole.CODING: ModelConfig(
-        model="gpt-4o", 
+        model="poolside/laguna-m.1:free", 
         temperature=0.0,
-        fallback_model="gpt-4o-2024-08-06",
+        fallback_model="moonshotai/kimi-k2.6:free",
         tool_group="coding"
     ),
     ModelRole.FINALIZER: ModelConfig(
-        model="gpt-4o", 
+        model="z-ai/glm-4.5-air:free", 
         temperature=0.0,
-        fallback_model="gpt-4o-2024-08-06"
+        fallback_model="openai/gpt-oss-20b:free"
         )
 }
