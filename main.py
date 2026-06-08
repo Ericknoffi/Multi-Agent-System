@@ -8,6 +8,7 @@ from Nodes.Researcher import researcher
 from Nodes.Finalizer import finalizer_node
 from Gateway.llm_gateway import LLMGateway
 from Nodes.supervisor_node import AgentState, supervisor_node, supervisor_router
+from wrapper import pii_middleware
 import registry
 
 
@@ -15,11 +16,11 @@ load_dotenv()
 
 
 graph = StateGraph(AgentState)
-graph.add_node("planner", planner)
-graph.add_node("supervisor", supervisor_node)
-graph.add_node("research", researcher)
-graph.add_node("coding", coder)
-graph.add_node("finalizer", finalizer_node)
+graph.add_node("planner", pii_middleware(planner))
+graph.add_node("supervisor", pii_middleware(supervisor_node))
+graph.add_node("research", pii_middleware(researcher))
+graph.add_node("coding", pii_middleware(coder))
+graph.add_node("finalizer", pii_middleware(finalizer_node))
 
 graph.add_edge(START, "planner")
 graph.add_edge("planner", "supervisor")
@@ -47,7 +48,7 @@ async def main():
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
-    user_query = " ".join(sys.argv[1:]).strip() or "Create a simple task plan"
+    user_query = " ".join(sys.argv[1:]).strip()
 
     llm_gateway = LLMGateway(api_key=api_key)
 
