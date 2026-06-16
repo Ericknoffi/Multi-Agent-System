@@ -8,8 +8,11 @@ from ._utils import get_current_task, build_updated_tasks, get_prior_results
 async def researcher(state: AgentState):
     task = get_current_task(state)
 
+    import os
+    workspace_abs = os.path.abspath("./workspace")
     prior = get_prior_results(state)
     human_content = (
+        f"Absolute workspace directory: {workspace_abs}\n\n"
         f"Original request: {state['user_query']}\n\n"
         + (f"{prior}\n\n" if prior else "")
         + f"Your task: {task['description']}"

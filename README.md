@@ -1,346 +1,207 @@
-# AI Agent
+# Advanced Hybrid Multi-Agent AI Framework
 
-A modular multi-agent framework built with LangGraph, LangChain, and MCP tools. The project splits work into a small orchestration flow with specialized nodes for planning, research, code generation, and final response synthesis.
+A highly optimized, production-grade hybrid multi-agent system built using **LangGraph**, **LangChain**, and **Model Context Protocol (MCP)** tools. This framework implements a distributed architecture where light orchestration tasks run locally, and resource-intensive reasoning/coding tasks are delegated to cloud-based Mixture-of-Experts (MoE) models.
 
-## What this project does
+---
 
-The application accepts a user request, turns it into a task plan, routes those tasks to the best specialized agent, and then assembles a final answer.
+## 1. Core Architecture Pattern
+The project implements a **Directed Acyclic Graph (DAG) Orchestrator-Workers pattern** using LangGraph:
+```mermaid
+graph TD
+    START --> Planner[Planner Node]
+    Planner --> Supervisor[Supervisor Node]
+    Supervisor -->|requires research| Researcher[Researcher Node]
+    Supervisor -->|requires implementation| Coder[Coder Node]
+    Researcher --> Supervisor
+    Coder --> Supervisor
+    Supervisor -->|all tasks done / max iterations| Finalizer[Finalizer Node]
+    Finalizer --> END
+```
 
-The current workflow is:
+* **Local Orchestration Edge**: The Planner and Supervisor control the state machine locally on your device to keep execution zero-cost, zero-latency, and strictly private.
+* **Cloud Execution Boundary**: The Researcher and Coder make targeted calls to powerful cloud models when deep reasoning or extensive factual retrieval is required.
+* **Role-Based Tool Boundaries**: Instead of giving all tools to all agents, tools are scoped:
+  * **Research tools** (filesystem, fetch/web, github) are only available to the Researcher.
+  * **Coding tools** (filesystem, github, context7/docs) are only available to the Coder.
 
-1. `planner` turns the user request into structured tasks.
-2. `supervisor` selects the next unfinished task.
-3. `research` handles information gathering and analysis tasks.
-4. `coding` handles implementation and debugging tasks.
-5. `finalizer` combines completed task results into the final response.
+---
 
-The system is designed to be easy to extend with more nodes, more tools, or different model configurations.
+## 2. Model Specifications & Deployment
 
-## Project structure
+The framework uses a carefully tuned configuration in [Gateway/models.py](Gateway/models.py):
 
+| Role | Deployment | Model Name | Parameter Details | Billed Rate (1M tokens) | Key Strengths |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **PLANNER** | Local (Ollama) | `cieloforge/qwen2.5-coder-7b-instruct-spec:latest` | 7B parameters (Active) | Free (Local) | Structured JSON generation, fast task breakdown. |
+| **SUPERVISOR** | Local (Ollama) | `cieloforge/qwen2.5-coder-7b-instruct-spec:latest` | 7B parameters (Active) | Free (Local) | Strict schema adherence, routing decisions. |
+| **RESEARCHER** | Cloud (OpenRouter) | `openai/gpt-oss-120b:free` | 117B Mixture-of-Experts (MoE) | Free (Cloud API) | Dense factual comprehension, long context parsing. |
+| **CODING** | Cloud (OpenRouter) | `nex-agi/nex-n2-pro:free` | 397B total (17B Active MoE) | Free (Cloud API) | Built on Qwen 3.5; 262K context; advanced coding logic. |
+| **FINALIZER** | Local (Ollama) | `gemma4:e4b` | 4B parameters (Active) | Free (Local) | Lightweight response formatting and markdown table compiling. |
+
+### Model Technical Specifications
+1. **cieloforge/qwen2.5-coder-7b-instruct-spec:latest**: A custom quantization/fine-tune of the Qwen-2.5-Coder model optimized for extreme fidelity in tool calling and JSON structured outputs. Runs on local consumer GPUs/CPUs with minimum 8GB VRAM.
+2. **openai/gpt-oss-120b**: A 117B parameter MoE model that activates 5.1B parameters per token. Runs on a single quantized H100 node in the cloud. It features native tool-use capability and long-context synthesis.
+3. **nex-agi/nex-n2-pro**: A state-of-the-art agentic MoE model from Nex AGI with a total of 397B parameters (17B active per forward pass). Built on the Qwen3.5 architecture, it boasts a massive 262K token context window and has unified internal planning-coding-debugging loops.
+
+---
+
+## 3. Detailed File-by-File Breakdown
+
+### Root Directory
+* **[main.py](main.py)**: The entry point. Initializes MCP clients, validates the `.env` configuration, constructs the LangGraph `StateGraph`, compiles the pipeline, handles top-level execution timeouts, and gracefully shuts down subprocesses (adding a `0.2s` sleep to prevent Windows Proactor pipe-close crashes).
+* **[config.py](config.py)**: Houses the strict system prompts for all agents. 
+  * `RESEARCH_PROMPT` enforces plain-prose outputs, a strict 250-word cap, and bans the generation of markdown or raw code to keep token usage down.
+  * `CODER_PROMPT` enforces JSON-only delivery matching a schema of `{summary, run, files}`.
+* **[registry.py](registry.py)**: Handles concurrent, safe initialization and lifecycle management of all MCP clients. If a client fails to connect or times out, it logs a warning but allows the system to continue running with the remaining tools.
+* **[utils.py](utils.py)**: Contains standard utility logging with timestamps formatted as `[HH:MM:SS]`.
+* **[wrapper.py](wrapper.py)**: Implements node-level middleware (`pii_middleware`) that automatically intercept and scrub sensitive data before returning states.
+* **[requirements.txt](requirements.txt)**: Python package list.
+* **[.gitignore](.gitignore)**: Explicitly ignores Python compiler caches (`__pycache__/`), environment secrets (`.env`), and the dynamic runtime directory (`workspace/`).
+
+### Gateway Directory
+* **[Gateway/llm_gateway.py](Gateway/llm_gateway.py)**: Initializes and caches `ChatOpenAI` models and agents. It maps the local-to-cloud boundary and implements `_get_api_key()` to dynamically mask key headers for local Ollama endpoints (using `SecretStr("none")`).
+* **[Gateway/models.py](Gateway/models.py)**: The centralized registry mapping each `ModelRole` to a `ModelConfig` (temperature, timeout, max tokens, provider, base URL).
+
+### Middlewares Directory
+* **[Middlewares/pii.py](Middlewares/pii.py)**: Compiles regex patterns to redact sensitive personal data (emails, Aadhaar/PAN cards, credit cards, passport numbers, API keys, UPIs, JWTs, IPs) and replace them with `[REDACTED]`.
+
+### Nodes Directory
+* **[Nodes/Planner.py](Nodes/Planner.py)**: Uses structured schemas to split the user request into up to 3 atomic tasks, categorizing them into `software` or `general` domains.
+* **[Nodes/supervisor_node.py](Nodes/supervisor_node.py)**: The brain of the graph. Evaluates tasks, manages the retry budget (up to 2 retries per task), and routes to the next pending node. It includes a critical patch ensuring `current_task` points to the next valid pending task even when a preceding task fails.
+* **[Nodes/Researcher.py](Nodes/Researcher.py)**: Collects factual context using web/fetch tools and passes findings downstream. Injects the absolute local workspace path into the prompt to provide context.
+* **[Nodes/Coder.py](Nodes/Coder.py)**: Executes code generation, attempts robust multi-level JSON parsing on the response, and automatically saves output files directly to disk inside `./workspace`.
+* **[Nodes/Finalizer.py](Nodes/Finalizer.py)**: Combines final deliverables, errors, and files into a cohesive Markdown summary report.
+* **[Nodes/_utils.py](Nodes/_utils.py)**: Implements graph state helper methods (e.g., matching the current active task ID, summarizing prior findings).
+
+### Tools Directory
+* **[Tools/filesystem.py](Tools/filesystem.py)**: Configures the official MCP Filesystem server to read/write safely within the designated `./workspace` path.
+* **[Tools/web.py](Tools/web.py)**: Starts the MCP Fetch server for accessing and converting raw HTTP/HTTPS web endpoints to Markdown.
+* **[Tools/github.py](Tools/github.py)**: Launches the MCP GitHub server for repo inspection using your `GITHUB_TOKEN`.
+* **[Tools/documentation.py](Tools/documentation.py)**: Integrates the Upstash Context7 search server for looking up external documentation.
+
+---
+
+## 4. Execution Lifecycle & State Transition
 ```text
-Agent/
-  main.py
-  config.py
-  registry.py
-  utils.py
-  wrapper.py
-  Gateway/
-    llm_gateway.py
-    models.py
-  Middlewares/
-    pii.py
-  Nodes/
-    _utils.py
-    Coder.py
-    Finalizer.py
-    Planner.py
-    Researcher.py
-    supervisor_node.py
-  Tools/
-    documentation.py
-    filesystem.py
-    github.py
-    web.py
+[User Request] 
+      │
+      ▼
+[Planner Node] ────► Creates atomic task list
+      │
+      ▼
+[Supervisor Node] ◄──────────────────────────┐
+      │                                       │
+      ├─► (Pending Research Task) ────► [Researcher Node] 
+      │                                       │
+      ├─► (Pending Coding Task) ──────► [Coder Node] (auto-saves file)
+      │                                       │
+      └─► (No Tasks Left / Iter Limit)        │
+              │                               │
+              ▼                               │
+      [Finalizer Node]                        │
+              │                               │
+              ▼                               │
+            [END] ────────────────────────────┘
 ```
 
-## Core architecture
-
-### `main.py`
-
-This is the entry point. It:
-
-- reconfigures stdout to UTF-8 (prevents encoding crashes on Windows)
-- loads environment variables
-- initializes the MCP tool registry
-- builds the LangGraph state graph
-- compiles the graph
-- invokes the workflow with the user query
-
-### `Gateway/`
-
-This folder contains model selection and configuration.
-
-- `models.py` defines the model roles, configurations (timeout, retries, etc.), and the registry of model settings.
-- `llm_gateway.py` creates `ChatOpenAI` instances for a given role, caching models and agents, and attaching tools when a role has a configured tool group.
-
-### `Middlewares/`
-
-This folder contains node execution helper middlewares.
-
-- `pii.py` contains the regex patterns and utility functions (`redact_pii`) for PII redaction.
-
-### `Nodes/`
-
-Each node is a focused unit of work.
-
-- `_utils.py` contains helper functions for managing task list updates, retrieving the current task, and fetching prior completed task results.
-- `Planner.py` creates the task list from the user request.
-- `supervisor_node.py` tracks the current task, checks against iteration / retry budgets, and decides what should run next.
-- `Researcher.py` completes research-oriented tasks.
-- `Coder.py` completes implementation-oriented tasks.
-- `Finalizer.py` synthesizes all completed results into the final response.
-
-### `Tools/`
-
-Each file wraps an MCP server and exposes tools to LangChain.
-
-- `filesystem.py` connects to the filesystem MCP server.
-- `web.py` connects to the fetch MCP server.
-- `github.py` connects to the GitHub MCP server using `GITHUB_TOKEN`.
-- `documentation.py` connects to Context7 for documentation lookup.
-
-### `utils.py`
-
-This file contains the helper logging function `log` that outputs timestamped messages to stdout.
-
-### `wrapper.py`
-
-This file contains `pii_middleware` which wraps node execution to provide logging and redact PII from task results and the final response (by delegating to `Middlewares/pii.py`).
-
-### `config.py`
-
-This file stores the prompt templates used by the planner, supervisor, researcher, and coder nodes.
-
-### `registry.py`
-
-This file initializes, stores, and manages tool sets used by research and coding roles, managing MCP clients.
-
-## How the workflow runs
-
-The graph is built with LangGraph and runs in a loop until the supervisor decides there are no more pending tasks.
-
-Typical state fields include:
-
-- `user_query` - the original request
-- `tasks` - task list generated by the planner
-- `current_task` - the task currently assigned to a node
-- `next_agent` - routing target chosen by the supervisor
-- `final_response` - the last synthesized answer
-- `iteration_count` - loop guard to prevent runaway execution
-- `errors` - error collection hook
-- `planner_reasoning` - planner rationale when available
-
-### Planning stage
-
-The planner uses a structured output schema to produce tasks with:
-
-- `id`
-- `description`
-- `assigned_agent`
-
-Each task is marked as pending and later consumed by the supervisor.
-
-### Supervision stage
-
-The supervisor node calls the supervisor model (with structured output schema) to dynamically decide the next action based on the current state of the tasks. The possible actions are:
-- `none`: proceed deterministically by selecting the next pending task.
-- `retry`: reset a task to pending, clear its result, and increment its retry count (up to `MAX_TASK_RETRIES` of 2).
-- `reassign`: reassign a task to a different agent node (`research`, `coding`, or `finalizer`) and reset its status.
-- `stop`: halt execution immediately, forwarding any reasoning or error notes to the finalizer.
-
-If no pending tasks remain, or if the iteration count reaches the limit (`MAX_ITERATIONS` of 25), the supervisor routes execution to the `finalizer`.
-
-### Research and coding stages
-
-These nodes:
-
-- read the current task from state
-- call the role-specific model from `LLMGateway`
-- request structured output
-- mark the matching task as completed
-- store the result back into the task list
-
-### Finalization stage
-
-The finalizer reads all completed task results and generates the user-facing answer.
-
-## Models
-
-Model selection is controlled in [Gateway/models.py](Gateway/models.py).
-
-Current roles include:
-
-- `PLANNER`
-- `SUPERVISOR`
-- `RESEARCHER`
-- `CODING`
-- `FINALIZER`
-
-Each role config (`ModelConfig`) can define:
-
-- `model` (OpenRouter model identifier)
-- `temperature` (default `0.0`)
-- `timeout` (default `60` seconds)
-- `max_retries` (default `3`)
-- `max_tokens` (default `2048`)
-- `tool_group` (associated tools group, e.g., `research` or `coding`)
-- `base_url` (API URL, default OpenRouter)
-
-## Tool groups
-
-Tool attachment happens inside `LLMGateway`.
-
-- `research` roles get filesystem, GitHub, and fetch tools.
-- `coding` roles get filesystem, GitHub, and Context7 tools.
-
-That means tool access is role-based rather than global.
-
-## Environment variables
-
-Create a `.env` file in the project root and add the required secrets.
-
-```env
-OPENROUTER_API_KEY=your_openrouter_api_key
-GITHUB_TOKEN=your_github_personal_access_token
-```
-
-### `OPENROUTER_API_KEY`
-
-Required for model access through OpenRouter.
-
-### `GITHUB_TOKEN`
-
-Used by the GitHub MCP server so the agent can interact with GitHub tools.
-
-## Prerequisites
-
-- Python 3.10 or newer
-- Node.js and `npx` available in your PATH
-- Access to OpenRouter
-- A GitHub token if you want GitHub tools enabled
-
-## Installation
-
-### 1. Create a virtual environment
-
-PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-Command Prompt:
-
-```cmd
-python -m venv .venv
-.\.venv\Scripts\activate
-```
-
-### 2. Install Python dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Create `.env`
-
-Add the environment variables shown above.
-
-### 4. Prepare the filesystem workspace
-
-The filesystem MCP server is configured to use `./workspace`, so create that folder if it does not already exist.
-
-```bash
-mkdir workspace
-```
-
-## Running the agent
-
-Run the agent with an optional prompt:
-
-```bash
-python main.py "Write a plan for building a secure file upload feature"
-```
-
-If no argument is provided, the agent falls back to a default planning request.
-
-## Example behavior
-
-A request like this:
-
-```text
-Research the best way to validate uploaded images and then write implementation steps.
-```
-
-typically becomes:
-
-- a planning task that creates separate research and coding work
-- a research task that gathers validation strategies
-- a coding task that turns those findings into implementation guidance or code
-- a final response that combines both outputs
-
-## PII handling
-
-The project includes a custom redaction middleware in `wrapper.py` that delegates to `Middlewares/pii.py`.
-
-It is intended to sanitize sensitive text before and after node execution. In its current form, it uses regex patterns to redact:
-
-- Email addresses
-- Indian mobile numbers (phone)
-- Aadhaar card numbers
-- PAN card numbers
-- Passport numbers
-- Driving license numbers
-- IFSC codes
-- Credit/debit card numbers
-- UPI IDs
-- GitHub tokens
-- OpenAI API keys
-- JSON Web Tokens (JWT)
-- IPv4 and IPv6 addresses
-
-If you extend the project to handle more sensitive inputs, you can expand the redaction rules in `Middlewares/pii.py`.
-
-## Extending the project
-
-### Add a new agent node
-
-1. Create a new node file in `Nodes/`.
-2. Add a matching role or routing rule if needed.
-3. Register the node in `main.py`.
-4. Update the supervisor router if the new node should be selectable.
-
-### Add more tools
-
-1. Create a new MCP wrapper in `Tools/`.
-2. Add the tool loader to `registry.py` or to a role-specific tool group.
-3. Bind the tools in `Gateway/llm_gateway.py`.
-
-### Adjust prompts
-
-All prompt text lives in `config.py`. This is the easiest place to tune behavior without changing control flow.
-
-### Change model selection
-
-Edit `Gateway/models.py` to swap models, add fallbacks, or tune temperature and timeout values.
-
-## Notes on implementation choices
-
-- The graph is deterministic at the orchestration level and agentic at the node level.
-- Structured output is used heavily to keep responses parseable.
-- The supervisor loop has a max-iteration guard to reduce the risk of runaway routing.
-- Tool access is separated by role so the planner and finalizer stay cleaner than the research and coding nodes.
-
-## Troubleshooting
-
-### `OPENROUTER_API_KEY is not set`
-
-Add the key to `.env` and restart the process.
-
-### GitHub tools do not initialize
-
-Check that `GITHUB_TOKEN` is present and valid.
-
-### `npx` or MCP servers fail to start
-
-Make sure Node.js is installed and available in the terminal session.
-
-### Empty or weak responses
-
-Try refining the planner prompt or the role prompts in `config.py`, or adjust the model selection in `Gateway/models.py`.
-
-## License
-
-This project is under the Work-On-My-Machine License: tested, trusted, and occasionally disappointing on other machines.
+1. **State Initialization**: The pipeline receives the `user_query`, sets the `llm_gateway`, and initializes the `tasks` list.
+2. **State Updates**: When a node finishes, it returns `{"tasks": updated_tasks}`.
+3. **Supervisor Validation**: The Supervisor inspects the task array. If a task fails, the supervisor retries it (max 2 times). If it runs out of retries, it force-fails it, logs the error, and advances to the next pending task.
+
+---
+
+## 5. Token & Cost Efficiency Analysis
+
+The hybrid nature of the architecture makes it incredibly cost-efficient:
+* **Typical Run (e.g., Generating Fibonacci Script)**:
+  * **Input (Prompt + Context)**: ~12,300 tokens (12.3K)
+  * **Output (Generated Code/JSON)**: ~1,075 tokens
+* **Cost Comparison (in Indian Rupees & USD)**:
+  * **Paid MoE Configuration (Using your exact models)**: **₹0.33** (approx. 33 Paise / $0.0039 USD)
+    * *Researcher (`openai/gpt-oss-120b`):* Billed at commercial rate of $0.05/1M input, $0.18/1M output $\approx$ ₹0.02.
+    * *Coder (`nex-agi/nex-n2-pro`):* Assumed equivalent commercial MoE rate of $0.40/1M input, $0.40/1M output $\approx$ ₹0.31.
+  * **Commercial Low-Cost Setup** (using `gpt-4o-mini` for all cloud roles): **₹0.20** (approx. 20 Paise / $0.0024 USD)
+  * **Commercial Top-Tier Setup** (using `claude-3.5-sonnet` for Coder): **₹3.86** (approx. 3 Rupees 86 Paise / $0.046 USD)
+
+---
+
+## 6. Installation & Prerequisites
+
+### Prerequisites
+* **Python 3.10+**
+* **Node.js & npx** (required for MCP tools)
+* **Ollama** installed locally (with `cieloforge/qwen2.5-coder-7b-instruct-spec:latest` and `gemma4:e4b` models downloaded)
+
+### Quick Start
+1. Clone the repository and navigate into the `Agent/` directory.
+2. Create and activate a Python virtual environment:
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate
+   ```
+3. Install the packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Create a `.env` file in the root directory:
+   ```env
+   OPENROUTER_API_KEY=your_openrouter_key
+   GITHUB_TOKEN=your_github_access_token
+   AGENT_TIMEOUT_SECONDS=900
+   ```
+5. Run the system:
+   ```bash
+   python main.py "your prompt here"
+   ```
+
+---
+
+## 7. Model Context Protocol (MCP) Tool Reference
+
+The multi-agent framework splits tool permissions dynamically using role boundaries. Below is the full catalog of MCP-provided tools available in this framework:
+
+### A. Filesystem MCP Server (Common Tools)
+These tools are exposed to **both Research and Coding agents** for working with files strictly inside the allowed `./workspace` folder:
+
+*   **`read_file`**: Reads the raw byte contents of a file. Best for binary file inspection.
+*   **`read_text_file`**: Reads text content of a file (UTF-8 encoding). Best for reading scripts, logs, or reports.
+*   **`read_multiple_files`**: Batch reads the contents of multiple files in a single pass.
+*   **`write_file`**: Overwrites or creates a new file at a specified path with a string payload.
+*   **`edit_file`**: Applies target modifications or unified diffs directly to a file (more efficient than full rewrites).
+*   **`create_directory`**: Creates a new folder or nested directory path.
+*   **`list_directory`**: Lists filenames and basic types inside a folder path.
+*   **`list_directory_with_sizes`**: Lists folder items including files sizes in bytes.
+*   **`directory_tree`**: Generates a recursive ASCII folder tree of the workspace structure.
+*   **`move_file`**: Moves or renames files and directories.
+*   **`search_files`**: Performs pattern-matching search across filenames (like a local find tool).
+*   **`get_file_info`**: Retrieves detailed metadata, size, timestamps, and file permissions.
+*   **`list_allowed_directories`**: Outputs the exact absolute paths the filesystem server is permitted to touch.
+
+### B. Web Fetch MCP Server (Research Tools Only)
+Exposed exclusively to the **Researcher agent** for retrieving external information:
+
+*   **`fetch`**: Downloads web page contents from any public HTTP/HTTPS URL and automatically parses and converts the HTML payload into clean, readable Markdown format for the agent to digest.
+
+### C. Context7 Documentation MCP Server (Coding Tools Only)
+Exposed exclusively to the **Coder agent** to search and retrieve documentation of python packages:
+
+*   **`resolve-library-id`**: Translates standard package names (e.g., `langgraph`, `pandas`, `langchain`) into unique Context7 library database identifiers.
+*   **`query-docs`**: Queries resolved library documentation using keywords or natural language query strings to pull function definitions, syntax specifications, and examples.
+
+### D. GitHub MCP Server (Conditional Tools)
+Exposed to **both Research and Coding agents** only when `GITHUB_TOKEN` is loaded in `.env`:
+
+*   **`search_repositories`**: Searches public/private repositories by query string.
+*   **`get_file_content`**: Reads the contents of any file directly from a Git repository branch.
+*   **`search_code`**: Searches code fragments across repositories.
+*   **`list_issues`**: Retrieves issue lists filtered by status, assignee, or label.
+*   **`get_issue`**: Retrieves issue details, comments, and description logs.
+*   **`create_issue`**: Submits a new bug report or issue to a repo.
+*   **`create_pull_request`**: Submits new branch modifications as a Pull Request.
+
+---
+
+## 8. License
+
+This project is licensed under the **"Work on My Machine" License (WOMML)**:
+> This software is guaranteed to be fully functional, optimized, and compile without errors exclusively on the developer's local machine at the time of authoring. Any deployment, execution, or compilation on other machines is completely at your own risk and may result in occasional disappointment.

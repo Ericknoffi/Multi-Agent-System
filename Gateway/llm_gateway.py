@@ -48,6 +48,11 @@ class LLMGateway:
     # Internal builders
     # ------------------------------------------------------------------
 
+    def _get_api_key(self, config) -> SecretStr:
+        if config.provider and config.provider != "openai":
+            return SecretStr("none")
+        return self._api_key
+
     def _build_model(self, role: ModelRole) -> Runnable:
         config = MODEL_REGISTRY.get(role)
         if config is None:
@@ -62,7 +67,7 @@ class LLMGateway:
             timeout=config.timeout,
             max_retries=config.max_retries,
             max_tokens=config.max_tokens,
-            api_key=self._api_key,
+            api_key=self._get_api_key(config),
             base_url=config.base_url,
         )
 
@@ -86,7 +91,7 @@ class LLMGateway:
             timeout=config.timeout,
             max_retries=config.max_retries,
             max_tokens=config.max_tokens,
-            api_key=self._api_key,
+            api_key=self._get_api_key(config),
             base_url=config.base_url,
         )
 

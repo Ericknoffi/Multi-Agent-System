@@ -1,37 +1,18 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 
-*.so
-
-build/
-dist/
-*.egg-info/
-pip-wheel-metadata/
-
+# Environments
+.env
 .venv/
 venv/
-env/
 ENV/
 
-*.log
-*.sqlite3
-
-.vscode/
-
-.idea/
-
-.pytest_cache/
-
-coverage.xml
-htmlcov/
-
-.env
-
-.DS_Store
-
-*.pem
-*.key
-
-# Agent workspace directory for filesystem tools
+# Project local workspace (holds generated agent output files like fib.py, conversions.md, etc.)
 workspace/
+
+# IDE files
+.vscode/
+.idea/
+.DS_Store

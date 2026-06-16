@@ -108,6 +108,8 @@ async def main():
         # 7. Always clean up MCP subprocesses on exit
         log("Shutting down MCP tools")
         await registry.shutdown_tools()
+        # Give Windows proactor event loop a short moment to clean up closed pipes to prevent closed pipe exceptions on shutdown
+        await asyncio.sleep(0.2)
 
     log("Agent graph finished")
     print(result.get("final_response") or "(no response produced)")

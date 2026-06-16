@@ -106,10 +106,11 @@ async def supervisor_node(state: AgentState):
                     {**t, "status": "failed"} if t["id"] == decision.task_id else t
                     for t in state["tasks"]
                 ]
+                has_pending = any(x["status"] == "pending" for x in updated_tasks)
                 return {
                     "tasks": updated_tasks,
-                    "next_agent": "finish" if not [x for x in updated_tasks if x["status"] == "pending"] else task["assigned_agent"],
-                    "current_task": None,
+                    "next_agent": "finish" if not has_pending else task["assigned_agent"],
+                    "current_task": None if not has_pending else task["id"],
                     "iteration_count": state["iteration_count"] + 1,
                     "errors": state.get("errors", []) + [
                         f"Task {decision.task_id!r} exceeded max retries ({MAX_TASK_RETRIES}) and was force-failed."
