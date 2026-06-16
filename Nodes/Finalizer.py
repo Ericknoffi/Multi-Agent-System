@@ -73,7 +73,7 @@ async def finalizer_node(state: AgentState):
         error_note = ""
         if failed_tasks:
             error_note = (
-                f" The following tasks failed and produced no output: "
+                " The following tasks failed and produced no output: "
                 + ", ".join(f"'{t['description'][:60]}'" for t in failed_tasks)
             )
         return {
